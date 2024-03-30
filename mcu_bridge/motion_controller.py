@@ -127,7 +127,7 @@ if __name__ == '__main__':
         level="INFO",
         format="%(message)s",
         datefmt="[%X]",
-        handlers=[RichHandler()]
+        handlers=[RichHandler(rich_tracebacks=True)]
     )
 
     chassis = Chassis()
