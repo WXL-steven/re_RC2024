@@ -5,10 +5,27 @@ import websockets
 import cv2
 import numpy as np
 
+control_keys_map = {
+    ord('w'): "w",  # 前进
+    ord('s'): "s",  # 后退
+    ord('a'): "a",  # 左平移
+    ord('d'): "d",  # 右平移
+    ord('q'): "q",  # 左转
+    ord('e'): "e",  # 右转
+    ord(' '): " ",  # 停止
+    ord('8'): "8",  # 舵机抬升
+    ord('2'): "2",  # 舵机下降
+    ord('4'): "4",  # 舵机左转
+    ord('6'): "6",  # 舵机右转
+    ord('5'): "5",  # 舵机复位
+}
+
 
 async def receive_images(uri):
     async with websockets.connect(uri) as websocket:
         print("Connected to WebSocket server")
+
+        last_ord = " "
 
         while True:  # 持续接收图像
             # 接收整个消息
@@ -25,7 +42,7 @@ async def receive_images(uri):
             description, image_length = struct.unpack(header_format, data[1:header_total_length])
             description = description.decode()
 
-            print(f"Received image: {description} ({image_length} bytes)")
+            # print(f"Received image: {description} ({image_length} bytes)")
 
             # 提取图像数据
             image_data = data[header_total_length:]
@@ -43,14 +60,22 @@ async def receive_images(uri):
             if image is not None:
                 cv2.imshow(description, image)
                 key = cv2.waitKey(1)  # 短暂等待，处理GUI事件
-                if key & 0xFF == ord('q'):
+                if key & 0xFF == ord('p'):
+                    await websocket.send(" ")
                     break
+                if key in control_keys_map:
+                    ord_ = control_keys_map[key]
+                    if ord_ != last_ord or key in [ord('8'), ord('2'), ord(' '), ord('4'), ord('6'), ord('5')]:
+                        last_ord = ord_
+                        print(f"Sending order: \"{ord_}\"")
+                        await websocket.send(ord_)
             else:
                 print("Failed to decode image")
 
 
-# WebSocket服务器地址
-uri = "ws://localhost:22335"
+if __name__ == "__main__":
+    # WebSocket服务器地址
+    uri = "ws://192.168.251.74:22335"
 
-# 运行客户端
-asyncio.run(receive_images(uri))
+    # 运行客户端
+    asyncio.run(receive_images(uri))

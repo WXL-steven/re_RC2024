@@ -1,6 +1,7 @@
 import asyncio
+import logging
 import struct
-from typing import Set
+from typing import Set, Optional
 
 import cv2
 import numpy as np
@@ -61,28 +62,43 @@ class WebSocketServer:
             cls._instance = super(WebSocketServer, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, max_edge_length: int = 512, jpg_quality: int = 90) -> None:
+    def __init__(
+            self,
+            max_edge_length: int = 512,
+            jpg_quality: int = 90,
+            message_callback: callable = None,
+            close_callback: callable = None
+    ) -> None:
         if self._initialized:  # 如果已经初始化过，直接返回
             return
+        self.logger = logging.getLogger("re_RC2024.DebugBridge.ws_server")
         self.server: websockets.server = None
         self.clients: Set[websockets.WebSocketServerProtocol] = set()
         self.max_edge_length: int = max_edge_length
         self.jpg_quality: int = jpg_quality
+        self.message_callback: callable = message_callback
+        self.close_callback: callable = close_callback
+        self.task: Optional[asyncio.Task] = None
+        self.auto_send: bool = False
         self._initialized = True  # 标记为已初始化
 
     async def _register(self, websocket: websockets.WebSocketServerProtocol) -> None:
         self.clients.add(websocket)
 
     async def _unregister(self, websocket: websockets.WebSocketServerProtocol) -> None:
+        if self.close_callback:
+            await self.close_callback()
         self.clients.remove(websocket)
 
     async def handler(self, websocket: websockets.WebSocketServerProtocol) -> None:
         await self._register(websocket)
         try:
             async for message in websocket:
-                print(f"Received message from client: {message}")
+                self.logger.info(f"Received message: \"{message}\"")
+                if self.message_callback:
+                    await self.message_callback(message)
         except websockets.exceptions.ConnectionClosedError as e:
-            print(f"Connection closed with error: {e}")
+            self.logger.error(f"Connection closed unexpectedly: {e}")
         finally:
             await self._unregister(websocket)
 
@@ -92,22 +108,31 @@ class WebSocketServer:
         except (asyncio.CancelledError, asyncio.TimeoutError, KeyboardInterrupt):
             await self.stop()
 
-    async def start(self, host: str = '0.0.0.0', port: int = 22335) -> asyncio.Task:
+    async def start(
+            self,
+            host: str = '0.0.0.0',
+            port: int = 22335,
+    ) -> None:
         print(f"WebSocket Server started at ws://{host}:{port}")
-        self.server = await websockets.serve(self.handler, host, port)
-        task: asyncio.Task = asyncio.create_task(self._task())
-        return task
+        self.server = await websockets.serve(
+            self.handler,
+            host,
+            port
+        )
+        self.task = asyncio.create_task(self._task())
 
     def status(self) -> bool:
         return self.server.is_serving()
 
     async def stop(self) -> None:
-        self.server.close()
-        await self.server.wait_closed()
+        if self.server is not None:
+            self.server.close()
+            await self.task
 
     async def _broadcast(self, data: bytes) -> None:
         if self.clients:
-            await asyncio.wait([self._safe_send(client, data) for client in self.clients])
+            tasks = [asyncio.create_task(self._safe_send(client, data)) for client in self.clients]
+            await asyncio.wait(tasks)
 
     @staticmethod
     async def _safe_send(client: websockets.WebSocketServerProtocol, data: bytes) -> None:
@@ -151,25 +176,24 @@ class WebSocketServer:
 async def main():
     server = WebSocketServer()
     executor = ThreadPoolExecutor()
-    server_task = await server.start('localhost', 22335)
+    server_task = await server.start('0.0.0.0', 22335)
 
     while not server.status():
         await asyncio.sleep(0.1)
 
     print("WebSocket server started")
 
-    cap = await asyncio.get_event_loop().run_in_executor(executor, cv2.VideoCapture, 0)
+    cap = await asyncio.get_event_loop().run_in_executor(executor, cv2.VideoCapture, 1)
     print("Camera started")
     while cap.isOpened():
         ret, frame = await asyncio.get_event_loop().run_in_executor(executor, cap.read)
         if not ret:
             break
         await server.imshow("Camera0", frame)
-        await server.imshow("Camera1", frame)
         await asyncio.sleep(0.1)
 
-    await server_task  # 等待服务器任务结束
+    # await server_task  # 等待服务器任务结束
 
 
 # 运行服务器
-asyncio.run(main())
+# asyncio.run(main())

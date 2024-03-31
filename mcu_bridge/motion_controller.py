@@ -108,7 +108,7 @@ class Chassis:
         """设置速度"""
         # 限制和转换速度值
         vel = [x, y, rotation]
-        body = self._gen_body(vel)  # 假设这个方法已经实现
+        body = self._gen_body(vel)
         data = bytes(ORD.HEAD + [ORD.VEL_MODE & 0xff] + body + ORD.TAIL)
         await self.serial_write(data)
         self.engine_logger.debug(f"Velocity set to x: {x}/128, y: {y}/128, rotation: {rotation}/128")
@@ -135,9 +135,14 @@ if __name__ == '__main__':
     loop.run_until_complete(chassis.init_serial())
     loop.run_until_complete(chassis.open_engine())
     try:
-        ipt = input("输入速度以测试底盘控制（格式：x y rotation）：")
-        x, y, r = map(int, ipt.split())
-        loop.run_until_complete(chassis.set_velocity(x, y, r))
+        while True:
+            ipt = input("输入速度以测试底盘控制（格式：x y rotation），输入q/回车退出：")
+            if ipt in ['q', 'Q'] or ipt == '':
+                break
+            x, y, r = map(int, ipt.split())
+            loop.run_until_complete(chassis.set_velocity(x, y, r))
+    except Exception as e:
+        print(e)
     finally:
         print("Shutting down...")
         loop.run_until_complete(chassis.close_engine())
