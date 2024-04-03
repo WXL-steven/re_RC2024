@@ -18,3 +18,7 @@ class SERIAL_ORD:
     ARM: int = 1
     VEL_MODE: int = 2
     GRAY_MODE: int = 3
+
+
+class AUTO_PILOT:
+    MAX_WORKERS: int = 2  # 最大工作线程数

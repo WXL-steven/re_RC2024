@@ -3,6 +3,7 @@ import logging
 
 from rich.logging import RichHandler
 
+from cv.line_follower import AutoPilot
 from debug_bridge.img_ransfer import WebSocketServer
 from cv.image_grabber import AsyncCamera
 from mcu_bridge.motion_controller import Chassis
@@ -10,11 +11,12 @@ from arm_control.arm_api import AsyncArm
 
 
 class Ch_ctl:
-    def __init__(self, chassis: Chassis, arm: AsyncArm, speed: int = 20):
+    def __init__(self, chassis: Chassis, arm: AsyncArm, speed: int = 20, fix_speed: int = 10):
         self.chassis = chassis
-        self.rudder2_angle = 180
+        self.rudder2_angle = 110
         self.rudder1_angle = 90
         self.speed = speed
+        self.fix_speed = fix_speed
         self.control_keys_map = {
             "w": [speed, 0, 0],
             "s": [-speed, 0, 0],
@@ -26,9 +28,15 @@ class Ch_ctl:
         }
         self.Arm = arm
 
+        self.break_flag = True
+
     async def ws_ord_ctl(self, order: str):
         if order in self.control_keys_map:
             await self.chassis.set_velocity(*self.control_keys_map[order])
+            if order == " ":
+                self.break_flag = True
+            elif order == "w":
+                self.break_flag = False
 
         if order == "8" and self.rudder2_angle < 170:
             self.rudder2_angle += 5
@@ -48,39 +56,75 @@ class Ch_ctl:
 
         if order == "5":
             self.rudder1_angle = 90
-            await self.Arm.write(2, 180, 500)
+            await self.Arm.write(1, self.rudder1_angle, 500)
+            print(f"a2: {self.rudder2_angle}")
 
     async def close(self):
-        await self.chassis.close_engine()
+        await self.chassis.set_velocity(0, 0, 0)
+
+    async def auto_pilot(self, dist, angle):
+        if dist is not None and angle is not None and not self.break_flag:
+            if abs(dist) > 20:
+                horizontal_speed = (-1 if dist < 0 else 1)*self.fix_speed
+            else:
+                horizontal_speed = 0
+
+            if abs(angle) > 5:
+                rotation_speed = (-1 if angle < 0 else 1)*self.fix_speed
+            else:
+                rotation_speed = 0
+
+            await self.chassis.set_velocity(self.speed, horizontal_speed, rotation_speed)
 
 
 async def main(cam_num: int = 0, speed: int = 20):
+    logger = logging.getLogger("re_RC2024.Playground")
+
     cam = AsyncCamera(cam_num)
     await cam.start()
-    print("Camera started")
+    logger.info("Camera started")
+    await asyncio.sleep(.1)
 
     arm = AsyncArm()
     await arm.init()
-    print("Arm started")
+    await asyncio.sleep(.1)
+    await arm.lock()
+    logger.info("Arm started")
+    await arm.set_all()
+
+    await asyncio.sleep(.1)
 
     chassis = Chassis()
     await chassis.init_serial()
-    print("Chassis started")
+    await asyncio.sleep(.1)
+    logger.info("Chassis started")
     await chassis.open_engine()
 
     ch_ctl = Ch_ctl(chassis, arm, speed)
 
-    server = WebSocketServer(message_callback=ch_ctl.ws_ord_ctl, close_callback=ch_ctl.close)
+    server = WebSocketServer(message_callback=ch_ctl.ws_ord_ctl, close_callback=ch_ctl.close, max_edge_length=640)
     await server.start('0.0.0.0', 22335)
 
     while not server.status():
         await asyncio.sleep(0.1)
-    print("WebSocket server started")
+    logger.info("WebSocket server started")
+
+    cv_playground = AutoPilot(imshow=server.imshow)
+
+    debug_flag = True
 
     try:
         while cam.cap.isOpened():
             frame = await cam.queue.get()
+            if debug_flag:
+                print(frame.shape)
+                debug_flag = False
+            if frame is None:
+                print("Frame is None")
             await server.imshow("Camera0", frame)
+            dist, angle = await cv_playground.play_ground(frame)
+            if dist is not None and angle is not None:
+                await ch_ctl.auto_pilot(dist, angle)
             await asyncio.sleep(0)
     except KeyboardInterrupt:
         pass
@@ -101,7 +145,12 @@ if __name__ == "__main__":
     )
 
     cam_num = input("请输入摄像头id：")
+    if cam_num == "":
+        cam_num = 0
+
     speed = input("请输入速度：")
+    if speed == "":
+        speed = 20
 
     try:
         if 0 <= int(cam_num) <= 1 and 0 <= int(speed) <= 50:

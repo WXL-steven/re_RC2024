@@ -9,7 +9,7 @@ import oem_lib.Arm_Lib as Arm_Lib
 class AsyncArm:
     _instance: Optional['AsyncArm'] = None
     _initialized: bool = False
-    _default_angle: list[int] = [90, 180, 0, 0, 90, 0]
+    _default_angle: list[int] = [90, 110, 0, 0, 90, 0]
 
     def __new__(cls, *args, **kwargs) -> 'AsyncArm':
         if cls._instance is None:
@@ -40,7 +40,7 @@ class AsyncArm:
     async def set_all(
             self,
             angle1: int = 90,
-            angle2: int = 180,
+            angle2: int = 110,
             angle3: int = 0,
             angle4: int = 0,
             angle5: int = 90,

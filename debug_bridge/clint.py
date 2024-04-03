@@ -1,5 +1,7 @@
 import asyncio
+import os
 import struct
+import time
 
 import websockets
 import cv2
@@ -21,7 +23,12 @@ control_keys_map = {
 }
 
 
-async def receive_images(uri):
+async def receive_images(
+        uri,
+        save_data=False,
+        save_path=None
+):
+    saving_timer = time.time()
     async with websockets.connect(uri) as websocket:
         print("Connected to WebSocket server")
 
@@ -46,6 +53,8 @@ async def receive_images(uri):
 
             # 提取图像数据
             image_data = data[header_total_length:]
+            data_size_bytes = len(image_data)
+            data_size_kb = data_size_bytes / 1024
 
             # 如果接收到的数据少于预期长度，继续接收直到足够
             while len(image_data) < image_length:
@@ -58,24 +67,54 @@ async def receive_images(uri):
 
             # 显示图片
             if image is not None:
+                if save_data and save_path and description == "Dataset" and saving_timer + 2 < time.time():
+                    # yy-mm-dd_HH-MM-SS
+                    time_str = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
+                    final_path = os.path.join(save_path, f"dataset_{time_str}.jpg")
+                    cv2.imwrite(final_path, image)
+                    saving_timer = time.time()
+                    print(f"Saved image to {save_path}/dataset_{time_str}.jpg")
+
+                # 右上角显示图片传输大小
+                cv2.putText(
+                    image,
+                    f"{image.shape[1]}x{image.shape[0]} {data_size_kb:.2f}KB",
+                    (100, 20), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (255, 255, 255),
+                    1
+                )
+
                 cv2.imshow(description, image)
                 key = cv2.waitKey(1)  # 短暂等待，处理GUI事件
                 if key & 0xFF == ord('p'):
                     await websocket.send(" ")
+                    await asyncio.sleep(0.5)
                     break
                 if key in control_keys_map:
                     ord_ = control_keys_map[key]
-                    if ord_ != last_ord or key in [ord('8'), ord('2'), ord(' '), ord('4'), ord('6'), ord('5')]:
+                    if ord_ != last_ord or key in [ord('8'), ord('2'), ord(' '), ord('4'), ord('6'), ord('5')] or True:
                         last_ord = ord_
                         print(f"Sending order: \"{ord_}\"")
                         await websocket.send(ord_)
             else:
                 print("Failed to decode image")
 
+        cv2.destroyAllWindows()
+        await websocket.close()
+
 
 if __name__ == "__main__":
     # WebSocket服务器地址
-    uri = "ws://192.168.251.74:22335"
+    # uri = "ws://127.0.0.1:22335"
+    uri = "ws://192.168.158.74:22335"
 
     # 运行客户端
-    asyncio.run(receive_images(uri))
+    # asyncio.run(receive_images(uri))
+    asyncio.run(
+        receive_images(
+            uri,
+            save_data=True,
+            save_path=r"C:\Users\Steven\PycharmProjects\re_rc2024\dataset\original"
+        )
+    )

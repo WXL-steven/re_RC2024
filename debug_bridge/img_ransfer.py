@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import socket
 import struct
 from typing import Set, Optional
 
 import cv2
+import netifaces
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
@@ -86,9 +88,10 @@ class WebSocketServer:
         self.clients.add(websocket)
 
     async def _unregister(self, websocket: websockets.WebSocketServerProtocol) -> None:
-        if self.close_callback:
-            await self.close_callback()
+        await websocket.close()
         self.clients.remove(websocket)
+        if self.close_callback:
+            _ = asyncio.create_task(self.close_callback())
 
     async def handler(self, websocket: websockets.WebSocketServerProtocol) -> None:
         await self._register(websocket)
@@ -108,18 +111,35 @@ class WebSocketServer:
         except (asyncio.CancelledError, asyncio.TimeoutError, KeyboardInterrupt):
             await self.stop()
 
-    async def start(
-            self,
-            host: str = '0.0.0.0',
-            port: int = 22335,
-    ) -> None:
-        print(f"WebSocket Server started at ws://{host}:{port}")
+    @staticmethod
+    def _get_internal_ips() -> list:
+        """获取以192.168开头的内网IP地址"""
+        ips = []
+        for interface in netifaces.interfaces():
+            addresses = netifaces.ifaddresses(interface)
+            if netifaces.AF_INET in addresses:
+                for address_info in addresses[netifaces.AF_INET]:
+                    ip_address = address_info['addr']
+                    if ip_address.startswith('192.168'):
+                        ips.append(ip_address)
+        return ips
+
+    async def start(self, host: str = '0.0.0.0', port: int = 22335) -> None:
         self.server = await websockets.serve(
             self.handler,
             host,
             port
         )
         self.task = asyncio.create_task(self._task())
+        if host == '0.0.0.0':
+            ips = self._get_internal_ips()
+            if ips:
+                for ip in ips:
+                    self.logger.info(f"WebSocket Server started at ws://{ip}:{port}")
+            else:
+                self.logger.info("WebSocket Server started, but no internal (192.168.x.x) IPs found.")
+        else:
+            self.logger.info(f"WebSocket Server started at ws://{host}:{port}")
 
     def status(self) -> bool:
         return self.server.is_serving()
@@ -138,15 +158,18 @@ class WebSocketServer:
     async def _safe_send(client: websockets.WebSocketServerProtocol, data: bytes) -> None:
         try:
             await client.send(data)
+            await asyncio.sleep(0)
         except websockets.exceptions.ConnectionClosed:
             pass
 
     def _resize_image(self, image: np.ndarray) -> np.ndarray:
         h, w = image.shape[:2]
-        scale: float = self.max_edge_length / max(h, w)
-        if scale < 1:
-            new_size = (int(w * scale), int(h * scale))
-            image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+        if h > self.max_edge_length or w > self.max_edge_length:
+            scale: float = self.max_edge_length / max(h, w)
+            if scale < 1:
+                new_size = (int(w * scale), int(h * scale))
+                image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+            return image
         return image
 
     def _encode_image(self, image: np.ndarray) -> bytes:
@@ -158,7 +181,7 @@ class WebSocketServer:
             raise ValueError("Failed to encode image")
 
     async def imshow(self, description: str, image: np.ndarray) -> None:
-        if self.server is None or not self.server.is_serving():
+        if self.server is None or not self.server.is_serving() or image is None:
             return
         if len(description) > 254:
             print("Description length exceeds 255 characters")
@@ -183,7 +206,7 @@ async def main():
 
     print("WebSocket server started")
 
-    cap = await asyncio.get_event_loop().run_in_executor(executor, cv2.VideoCapture, 1)
+    cap = await asyncio.get_event_loop().run_in_executor(executor, cv2.VideoCapture, 0)
     print("Camera started")
     while cap.isOpened():
         ret, frame = await asyncio.get_event_loop().run_in_executor(executor, cap.read)
@@ -195,5 +218,6 @@ async def main():
     # await server_task  # 等待服务器任务结束
 
 
-# 运行服务器
-# asyncio.run(main())
+if __name__ == "__main__":
+    # 运行服务器
+    asyncio.run(main())

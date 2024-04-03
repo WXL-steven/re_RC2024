@@ -6,9 +6,6 @@ from typing import Optional
 
 import serial
 
-import sys
-sys.path.append('./')
-
 from const import MCU_BRIDGE, SERIAL_ORD as ORD
 
 
