@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="jetson@192.168.93.74:22 password" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
-      <paths name="jetson@192.168.158.74:22 password">
+      <paths name="jetson@192.168.93.74:22 password">
         <serverdata>
           <mappings>
             <mapping deploy="/home/jetson/Document/re_RC2024" local="$PROJECT_DIR$" />

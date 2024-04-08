@@ -28,15 +28,16 @@ class Ch_ctl:
         }
         self.Arm = arm
 
-        self.break_flag = True
+        self.ap = False
 
     async def ws_ord_ctl(self, order: str):
         if order in self.control_keys_map:
             await self.chassis.set_velocity(*self.control_keys_map[order])
-            if order == " ":
-                self.break_flag = True
-            elif order == "w":
-                self.break_flag = False
+
+        if order == "ap":
+            self.ap = True
+        else:
+            self.ap = False
 
         if order == "8" and self.rudder2_angle < 170:
             self.rudder2_angle += 5
@@ -63,7 +64,7 @@ class Ch_ctl:
         await self.chassis.set_velocity(0, 0, 0)
 
     async def auto_pilot(self, dist, angle):
-        if dist is not None and angle is not None and not self.break_flag:
+        if dist is not None and angle is not None and self.ap:
             if abs(dist) > 20:
                 horizontal_speed = (-1 if dist < 0 else 1)*self.fix_speed
             else:
@@ -77,7 +78,7 @@ class Ch_ctl:
             await self.chassis.set_velocity(self.speed, horizontal_speed, rotation_speed)
 
 
-async def main(cam_num: int = 0, speed: int = 20):
+async def main(cam_num: int = 0, speed: int = 20, debug: bool = False):
     logger = logging.getLogger("re_RC2024.Playground")
 
     cam = AsyncCamera(cam_num)
@@ -113,6 +114,7 @@ async def main(cam_num: int = 0, speed: int = 20):
 
     debug_flag = True
 
+    windows_name = "Dataset" if debug else "Playground"
     try:
         while cam.cap.isOpened():
             frame = await cam.queue.get()
@@ -121,8 +123,8 @@ async def main(cam_num: int = 0, speed: int = 20):
                 debug_flag = False
             if frame is None:
                 print("Frame is None")
-            await server.imshow("Camera0", frame)
-            dist, angle = await cv_playground.play_ground(frame)
+            await server.imshow(windows_name, frame)
+            dist, angle = await cv_playground.get_correction(frame)
             if dist is not None and angle is not None:
                 await ch_ctl.auto_pilot(dist, angle)
             await asyncio.sleep(0)
@@ -152,9 +154,15 @@ if __name__ == "__main__":
     if speed == "":
         speed = 20
 
+    debug = input("是否开启调试模式？(y/[n])")
+    if debug == "y":
+        debug_flag = True
+    else:
+        debug_flag = False
+
     try:
         if 0 <= int(cam_num) <= 1 and 0 <= int(speed) <= 50:
-            asyncio.run(main(int(cam_num), int(speed)))
+            asyncio.run(main(int(cam_num), int(speed), debug_flag))
 
     except KeyboardInterrupt:
         print("程序结束")

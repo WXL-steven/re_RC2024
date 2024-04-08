@@ -20,6 +20,7 @@ control_keys_map = {
     ord('4'): "4",  # 舵机左转
     ord('6'): "6",  # 舵机右转
     ord('5'): "5",  # 舵机复位
+    ord('\t'): "ap",  # 自动驾驶
 }
 
 
@@ -107,7 +108,7 @@ async def receive_images(
 if __name__ == "__main__":
     # WebSocket服务器地址
     # uri = "ws://127.0.0.1:22335"
-    uri = "ws://192.168.158.74:22335"
+    uri = "ws://192.168.93.74:22335"
 
     # 运行客户端
     # asyncio.run(receive_images(uri))

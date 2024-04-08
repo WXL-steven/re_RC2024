@@ -1,1 +1,6 @@
 /dataset/
+/NeuralNetwork/dataset/means_stds.csv
+/NeuralNetwork/dataset/test_dataset.csv
+/NeuralNetwork/dataset/train_dataset.csv
+/NeuralNetwork/dataset/val_dataset.csv
+/NeuralNetwork/dataset/images/
