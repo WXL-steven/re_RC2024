@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import socket
 import struct
 from typing import Set, Optional
 
@@ -97,7 +96,7 @@ class WebSocketServer:
         await self._register(websocket)
         try:
             async for message in websocket:
-                self.logger.info(f"Received message: \"{message}\"")
+                self.logger.debug(f"Received message: \"{message}\"")
                 if self.message_callback:
                     await self.message_callback(message)
         except websockets.exceptions.ConnectionClosedError as e:

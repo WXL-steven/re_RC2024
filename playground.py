@@ -11,7 +11,14 @@ from arm_control.arm_api import AsyncArm
 
 
 class Ch_ctl:
-    def __init__(self, chassis: Chassis, arm: AsyncArm, speed: int = 20, fix_speed: int = 10):
+    def __init__(
+            self,
+            chassis: Chassis,
+            arm: AsyncArm,
+            speed: int = 20,
+            fix_speed: int = 10,
+            switch_mod: callable = None
+    ):
         self.chassis = chassis
         self.rudder2_angle = 110
         self.rudder1_angle = 90
@@ -27,17 +34,23 @@ class Ch_ctl:
             " ": [0, 0, 0]
         }
         self.Arm = arm
+        self.switch_mod = switch_mod
 
         self.ap = False
 
-    async def ws_ord_ctl(self, order: str):
-        if order in self.control_keys_map:
-            await self.chassis.set_velocity(*self.control_keys_map[order])
+    def set_switch_mode(self, switch_mod: callable):
+        self.switch_mod = switch_mod
 
+    async def ws_ord_ctl(self, order: str):
         if order == "ap":
             self.ap = True
+        elif order in ['z', 'x', 'c']:
+            pass
         else:
             self.ap = False
+
+        if order in self.control_keys_map:
+            await self.chassis.set_velocity(*self.control_keys_map[order])
 
         if order == "8" and self.rudder2_angle < 170:
             self.rudder2_angle += 5
@@ -60,17 +73,29 @@ class Ch_ctl:
             await self.Arm.write(1, self.rudder1_angle, 500)
             print(f"a2: {self.rudder2_angle}")
 
+        if order == "z" and self.switch_mod is not None:
+            self.switch_mod("left")
+
+        if order == "x" and self.switch_mod is not None:
+            self.switch_mod("center")
+
+        if order == "c" and self.switch_mod is not None:
+            self.switch_mod("right")
+
     async def close(self):
+        self.ap = False
         await self.chassis.set_velocity(0, 0, 0)
 
     async def auto_pilot(self, dist, angle):
+        if not self.ap:
+            return
         if dist is not None and angle is not None and self.ap:
             if abs(dist) > 20:
                 horizontal_speed = (-1 if dist < 0 else 1)*self.fix_speed
             else:
                 horizontal_speed = 0
 
-            if abs(angle) > 5:
+            if angle != 0:
                 rotation_speed = (-1 if angle < 0 else 1)*self.fix_speed
             else:
                 rotation_speed = 0
@@ -110,19 +135,20 @@ async def main(cam_num: int = 0, speed: int = 20, debug: bool = False):
         await asyncio.sleep(0.1)
     logger.info("WebSocket server started")
 
-    cv_playground = AutoPilot(imshow=server.imshow)
+    cv_playground = AutoPilot(
+        debug=True,
+        imshow=server.imshow,
+        mode="left",
+    )
 
-    debug_flag = True
+    ch_ctl.set_switch_mode(cv_playground.switch_mode)
 
     windows_name = "Dataset" if debug else "Playground"
     try:
         while cam.cap.isOpened():
             frame = await cam.queue.get()
-            if debug_flag:
-                print(frame.shape)
-                debug_flag = False
             if frame is None:
-                print("Frame is None")
+                logger.warning("Frame is None")
             await server.imshow(windows_name, frame)
             dist, angle = await cv_playground.get_correction(frame)
             if dist is not None and angle is not None:
@@ -162,6 +188,7 @@ if __name__ == "__main__":
 
     try:
         if 0 <= int(cam_num) <= 1 and 0 <= int(speed) <= 50:
+            print("=============== Program Start ===============")
             asyncio.run(main(int(cam_num), int(speed), debug_flag))
 
     except KeyboardInterrupt:

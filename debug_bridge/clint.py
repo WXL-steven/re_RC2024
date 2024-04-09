@@ -21,7 +21,19 @@ control_keys_map = {
     ord('6'): "6",  # 舵机右转
     ord('5'): "5",  # 舵机复位
     ord('\t'): "ap",  # 自动驾驶
+    ord('z'): "z",  # 左侧巡线模式
+    ord('x'): "x",  # 中心巡线模式
+    ord('c'): "c",  # 右侧巡线模式
 }
+
+name_task_disk = {}
+
+
+async def close_window_watchdog(name: str, timeout=1):
+    await asyncio.sleep(timeout)
+    cv2.destroyWindow(name)
+    name_task_disk[name].cancel()
+    del name_task_disk[name]
 
 
 async def receive_images(
@@ -37,7 +49,10 @@ async def receive_images(
 
         while True:  # 持续接收图像
             # 接收整个消息
-            data = await websocket.recv()
+            try:
+                data = await websocket.recv()
+            except websockets.exceptions.ConnectionClosedOK:
+                break
 
             # 先解析描述文本长度（假设描述文本长度占用1字节）
             description_length = struct.unpack("!B", data[:1])[0]
@@ -87,17 +102,23 @@ async def receive_images(
                 )
 
                 cv2.imshow(description, image)
-                key = cv2.waitKey(1)  # 短暂等待，处理GUI事件
-                if key & 0xFF == ord('p'):
+                key = cv2.waitKey(1) & 0xFF  # 短暂等待，处理GUI事件
+                if key == ord('p'):
                     await websocket.send(" ")
                     await asyncio.sleep(0.5)
                     break
                 if key in control_keys_map:
                     ord_ = control_keys_map[key]
-                    if ord_ != last_ord or key in [ord('8'), ord('2'), ord(' '), ord('4'), ord('6'), ord('5')] or True:
+                    if ord_ != last_ord or key in [ord('8'), ord('2'), ord(' '), ord('4'), ord('6'), ord('5')]:
                         last_ord = ord_
                         print(f"Sending order: \"{ord_}\"")
                         await websocket.send(ord_)
+
+                if description in name_task_disk:
+                    name_task_disk[description].cancel()
+                    del name_task_disk[description]
+                task = asyncio.create_task(close_window_watchdog(description))
+                name_task_disk[description] = task
             else:
                 print("Failed to decode image")
 
@@ -112,10 +133,14 @@ if __name__ == "__main__":
 
     # 运行客户端
     # asyncio.run(receive_images(uri))
-    asyncio.run(
-        receive_images(
-            uri,
-            save_data=True,
-            save_path=r"C:\Users\Steven\PycharmProjects\re_rc2024\dataset\original"
+    try:
+        asyncio.run(
+            receive_images(
+                uri,
+                save_data=True,
+                save_path=r"C:\Users\Steven\PycharmProjects\re_rc2024\dataset\original"
+            )
         )
-    )
+    except KeyboardInterrupt:
+        cv2.destroyAllWindows()
+        print("Program terminated by user")
