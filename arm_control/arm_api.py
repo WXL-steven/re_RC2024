@@ -99,3 +99,17 @@ class AsyncArm:
             angle = self._default_angle[idx - 1]
 
         await self.run_in_executor(self.arm.Arm_serial_servo_write, idx, angle, time)
+
+
+if __name__ == '__main__':
+    async def main():
+        arm = AsyncArm()
+        await arm.init()
+        await arm.unlock()
+        await asyncio.sleep(1)
+        while True:
+            for i in range(1, 7):
+                print(f"Servo {i}: {await arm.read(i)}", end=" ")
+            print()
+
+    asyncio.run(main())
